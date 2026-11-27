@@ -219,6 +219,15 @@ O único risco que inviabiliza o projeto é o primeiro, e a fase 0 existe para r
 
 **Nota de 27/11/2026 (fase 1):** a seção 3 diz que existem duas entradas "Wispr Flow". Na verdade, `NonPackaged` tem 86 subchaves com `wispr`, uma por versão instalada do Flow (por exemplo, `C:#Users#<usuario>#AppData#Local#WisprFlow#app-1.6.1583#Wispr Flow.exe`). Cada atualização cria uma entrada nova, e as antigas ficam. O detector segue a regra da seção 3: observa todas e considera o ditado ativo se qualquer uma tiver `LastUsedTimeStop` igual a 0. Risco novo: se uma entrada antiga ficar presa com `LastUsedTimeStop` igual a 0 (por exemplo, se o Flow for encerrado à força durante um ditado), o detector fica sempre ativo. Ainda não foi observado.
 
+**Nota de 27/11/2026 (fase 1, teste do `watch`): o registro deixou de ser atualizado.** Em 5 ditados, `flowpause watch` não emitiu nenhum evento. Diagnóstico:
+
+- A última gravação de `LastUsedTimeStart`/`LastUsedTimeStop` em todo o `CapabilityAccessManager` (HKCU e HKLM, qualquer app e qualquer permissão) foi em 24/11/2026 às 07:36.
+- Em 24/11/2026 foram instaladas as atualizações KB5132061 e KB5132688. O Windows está no build 26300.9974 (26H2).
+- O Wispr Flow em uso é o `app-1.6.1631`, instalado em 26/11/2026, e não tem subchave em `NonPackaged`. A versão mais nova no registro é a 1.6.1583, usada pela última vez em 23/11/2026.
+- A pasta `C:\ProgramData\Microsoft\Windows\CapabilityAccessManager` existe, mas só administrador tem acesso.
+
+Conclusão: neste build do Windows, a fonte de sinal da seção 3 não funciona mais. O risco "Formato da chave de registro mudar em versão futura do Windows" aconteceu. A alternativa já prevista nesta tabela é observar as sessões de captura de áudio via WASAPI.
+
 ## Referências
 
 - [Spotify Web API: Pause Playback](https://developer.spotify.com/console/put-pause)
