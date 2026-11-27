@@ -1,13 +1,13 @@
-# Fases 1 e 2 — Resultados
+# Phases 1 and 2 — Results
 
-Data do teste:
-Versão do Wispr Flow:
-Comando: `flowpause run` (padrões: `--resume-delay-ms 2000`, `--max-pause-secs 300`, `--match wispr`)
-Estratégia de pausa ativa: CheckFirst (consulta o estado antes de pausar)
+Test date:
+Wispr Flow version:
+Command: `flowpause run` (defaults: `--resume-delay-ms 2000`, `--max-pause-secs 300`, `--match wispr`)
+Active pause strategy: CheckFirst (checks the state before pausing)
 
-## Fase 1: detector (`flowpause watch`)
+## Phase 1: detector (`flowpause watch`)
 
-| Ditado | Linhas `ditado iniciou` | Linhas `ditado terminou` | Observação |
+| Dictation | `ditado iniciou` (started) lines | `ditado terminou` (ended) lines | Notes |
 | --- | --- | --- | --- |
 | 1 | | | |
 | 2 | | | |
@@ -15,13 +15,13 @@ Estratégia de pausa ativa: CheckFirst (consulta o estado antes de pausar)
 | 4 | | | |
 | 5 | | | |
 
-## Fase 2: critérios de aceite 1 a 6 (seção 9 da spec)
+## Phase 2: acceptance criteria 1 to 6 (spec section 9)
 
-| # | Critério | Passou? | Tempo até parar | Tempo até voltar | Observação / trecho do log |
+| # | Criterion | Passed? | Time to stop | Time to resume | Notes / log excerpt |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Música no Echo Dot: ao iniciar o ditado para em até 1 s; ao terminar, volta no Echo cerca de 2 s depois | | | | |
-| 2 | Música no Spotify do PC: mesmo comportamento, com retomada no PC | | | | |
-| 3 | Nada tocando: ditar não inicia música em nenhum dispositivo | | — | — | |
-| 4 | Três ditados com menos de 2 s entre eles: a música para uma vez e volta uma vez, ao final do terceiro | | | | |
-| 5 | Play manual durante a pausa: o programa não envia comando ao terminar o ditado | | | — | |
-| 6 | Troca de dispositivo durante a pausa: o programa não retoma no dispositivo antigo | | | — | |
+| 1 | Music on the Echo Dot: stops within 1 s when dictation starts; comes back on the Echo about 2 s after it ends | | | | |
+| 2 | Music in Spotify on the PC: same behavior, resuming on the PC | | | | |
+| 3 | Nothing playing: dictating does not start music on any device | | — | — | |
+| 4 | Three dictations less than 2 s apart: the music stops once and comes back once, at the end of the third | | | | |
+| 5 | Manual play during the pause: the program sends no command when dictation ends | | | — | |
+| 6 | Device switch during the pause: the program does not resume on the old device | | | — | |

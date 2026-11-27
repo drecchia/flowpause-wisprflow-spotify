@@ -1,237 +1,236 @@
-# Spec — Pausa automática do Spotify durante ditado (Wispr Flow)
+# Spec — Automatic Spotify pause during dictation (Wispr Flow)
 
-Versão de 27/11/2026 · Autor: Danilo Recchia
+Version of 2026-11-27 · Author: Danilo Recchia
 
-## 1. Objetivo e escopo
+## 1. Goal and scope
 
-Um utilitário de bandeja para Windows pausa o Spotify quando o Wispr Flow começa a ouvir e retoma a reprodução, no mesmo dispositivo, quando o ditado termina. Nome provisório: `flowpause`.
+A Windows tray utility pauses Spotify when Wispr Flow starts listening and resumes playback, on the same device, when dictation ends. Working name: `flowpause`.
 
-O recurso nativo do Flow envia um comando de mídia local. Quando o Spotify do PC só controla a reprodução em outro dispositivo (Echo Dot via Spotify Connect), não há sessão de áudio local e nada é pausado. A Web API do Spotify alcança qualquer dispositivo da conta.
+Flow's native feature sends a local media command. When the Spotify app on the PC only controls playback on another device (Echo Dot via Spotify Connect), there is no local audio session and nothing gets paused. The Spotify Web API reaches every device on the account.
 
-**Dentro do escopo**
+**In scope**
 
-- Detectar início e fim do ditado do Wispr Flow no Windows 11.
-- Pausar a reprodução ativa da conta Spotify, seja no PC, no Echo ou em outro dispositivo Connect.
-- Retomar automaticamente no dispositivo que estava tocando antes da pausa.
-- Rodar em segundo plano, com ícone na bandeja e início junto com o Windows.
+- Detect the start and end of Wispr Flow dictation on Windows 11.
+- Pause the account's active Spotify playback, whether on the PC, the Echo, or another Connect device.
+- Automatically resume on the device that was playing before the pause.
+- Run in the background, with a tray icon, starting with Windows.
 
-**Fora do escopo**
+**Out of scope**
 
-- Outros players (YouTube, navegador, Apple Music).
-- Outros sistemas operacionais.
-- Outros softwares de ditado. O alvo é configurável, mas só o Wispr Flow é testado.
-- Reduzir volume em vez de pausar.
+- Other players (YouTube, browser, Apple Music).
+- Other operating systems.
+- Other dictation software. The target is configurable, but only Wispr Flow is tested.
+- Lowering the volume instead of pausing.
 
-## 2. Decisões de arquitetura
+## 2. Architecture decisions
 
-O programa é um binário único em Rust, sem janela, com três componentes que conversam por canais assíncronos.
+The program is a single Rust binary, with no window, made of three components that talk over async channels.
 
-| Componente | Responsabilidade |
+| Component | Responsibility |
 | --- | --- |
-| Detector | Observa o registro do Windows e emite `DitadoIniciou` e `DitadoTerminou` |
-| Controlador | Máquina de estados: decide quando pausar, quando retomar e em qual dispositivo |
-| Cliente Spotify | Autenticação, renovação de token e chamadas à Web API |
+| Detector | Watches the Windows registry and emits `DictationStarted` and `DictationEnded` |
+| Controller | State machine: decides when to pause, when to resume, and on which device |
+| Spotify client | Authentication, token refresh, and Web API calls |
 
-**Por que Rust:** processo residente com consumo mínimo de memória, binário único sem runtime e acesso direto à API do Windows pelo crate `windows`.
+**Why Rust:** a resident process with minimal memory use, a single binary with no runtime, and direct access to the Windows API through the `windows` crate.
 
-**Crates sugeridos** (a confirmar na implementação): `tokio` para o runtime, `reqwest` para HTTP, `windows` ou `winreg` para o registro, `tray-icon` para a bandeja, `keyring` para guardar o refresh token no Gerenciador de Credenciais do Windows, `serde` + `toml` para configuração, `tracing` para log.
+**Suggested crates** (to be confirmed during implementation): `tokio` for the runtime, `reqwest` for HTTP, `windows` or `winreg` for the registry, `tray-icon` for the tray, `keyring` to store the refresh token in Windows Credential Manager, `serde` + `toml` for configuration, `tracing` for logging.
 
-**Decisões descartadas**
+**Rejected options**
 
-- Detectar pela barra inferior do Flow (UI Automation): depende de detalhes da interface que mudam a cada atualização.
-- Hook global da hotkey: não cobre o modo hands-free e quebra se o atalho mudar.
-- Tecla de mídia ou sessão de mídia do Windows para pausar: não alcança o Echo.
+- Detecting through Flow's bottom bar (UI Automation): depends on interface details that change with every update.
+- Global hotkey hook: does not cover hands-free mode and breaks if the shortcut changes.
+- Media key or Windows media session to pause: does not reach the Echo.
 
-## 3. Detecção do ditado
+## 3. Dictation detection
 
-O gatilho é o uso do microfone pelo processo do Wispr Flow, lido do registro do Windows. Teste em 27/11/2026 confirmou que o Flow só abre o microfone durante o ditado: a tela de privacidade mostra "Atualmente em uso" enquanto ele ouve e volta a mostrar o horário do último acesso quando para.
+The trigger is microphone use by the Wispr Flow process, read from the Windows registry. A test on 2026-11-27 confirmed that Flow only opens the microphone during dictation: the privacy screen shows "Currently in use" while it listens and goes back to showing the last access time when it stops.
+**Signal source**
 
-**Fonte do sinal**
+- Key: `HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged`
+- Each desktop app has a subkey named after the executable path, with `#` instead of `\`.
+- Values: `LastUsedTimeStart` and `LastUsedTimeStop` (QWORD, FILETIME format).
+- In use: `LastUsedTimeStop` equal to 0. Released: `LastUsedTimeStop` holds a timestamp.
 
-- Chave: `HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone\NonPackaged`
-- Cada aplicativo desktop tem uma subchave com o caminho do executável, com `#` no lugar de `\`.
-- Valores: `LastUsedTimeStart` e `LastUsedTimeStop` (QWORD, formato FILETIME).
-- Em uso: `LastUsedTimeStop` igual a 0. Liberado: `LastUsedTimeStop` com timestamp.
+**Rules**
 
-**Regras**
+1. At startup, enumerate the subkeys and select those matching the configured pattern (default: name containing `wispr`, case-insensitive). There are two "Wispr Flow" entries today; every matching entry is watched.
+2. Register `RegNotifyChangeKeyValue` on the `NonPackaged` key, with subtree and `REG_NOTIFY_CHANGE_LAST_SET`. No polling.
+3. On each notification, reread the selected subkeys. Dictation is active if any of them has `LastUsedTimeStop` equal to 0.
+4. Emit an event only on a transition (inactive to active, active to inactive).
+5. Re-enumerate the subkeys on each notification, because a Flow update can create a new entry with a different path.
+6. At startup, if the microphone is already in use, treat it as dictation in progress.
 
-1. Na inicialização, enumerar as subchaves e selecionar as que casam com o padrão configurado (padrão: nome contendo `wispr`, sem diferenciar maiúsculas). Hoje existem duas entradas "Wispr Flow"; todas as que casarem são observadas.
-2. Registrar `RegNotifyChangeKeyValue` na chave `NonPackaged`, com subtree e `REG_NOTIFY_CHANGE_LAST_SET`. Sem polling.
-3. A cada notificação, reler as subchaves selecionadas. O ditado está ativo se qualquer uma tiver `LastUsedTimeStop` igual a 0.
-4. Emitir evento só na transição (inativo para ativo, ativo para inativo).
-5. Reenumerar as subchaves a cada notificação, porque uma atualização do Flow pode criar uma entrada nova com outro caminho.
-6. Na inicialização, se o microfone já estiver em uso, tratar como ditado em andamento.
+If Flow becomes a packaged app (MSIX), the entry moves to `ConsentStore\microphone\<PackageFamilyName>`. The detector should watch the whole `microphone` key to cover both cases.
 
-Se o Flow passar a ser distribuído como app empacotado (MSIX), a entrada muda para `ConsentStore\microphone\<PackageFamilyName>`. O detector deve observar a chave `microphone` inteira para cobrir os dois casos.
+## 4. Spotify integration
 
-## 4. Integração com o Spotify
+Every playback action goes through the Spotify Web API, which requires a Premium account and controls any Spotify Connect device on the account.
 
-Toda ação de reprodução passa pela Web API do Spotify, que exige conta Premium e controla qualquer dispositivo Spotify Connect da conta.
+**App in the developer dashboard**
 
-**App no painel de desenvolvedor**
+- One app in Development Mode, created by the user. Since February 2026 this mode requires the owner to have Premium, allows one Client ID per developer, and up to five authorized users. That is enough for personal use.
+- Loopback redirect URI: `http://127.0.0.1:<port>/callback`.
+- The Client ID goes in the configuration file. There is no client secret.
 
-- Um app em Development Mode, criado pelo próprio usuário. Desde fevereiro de 2026 esse modo exige Premium do dono, permite um Client ID por desenvolvedor e até cinco usuários autorizados. Para uso pessoal basta.
-- Redirect URI em loopback: `http://127.0.0.1:<porta>/callback`.
-- O Client ID vai no arquivo de configuração. Não há client secret.
+**Authentication**
 
-**Autenticação**
-
-- Authorization Code com PKCE. Na primeira execução o programa abre o navegador e sobe um servidor HTTP local só para receber o callback.
-- Escopos: `user-read-playback-state` e `user-modify-playback-state`.
-- Refresh token guardado no Gerenciador de Credenciais do Windows, nunca em arquivo.
-- Access token renovado em segundo plano antes de expirar, para a pausa nunca esperar uma renovação.
+- Authorization Code with PKCE. On first run the program opens the browser and starts a local HTTP server only to receive the callback.
+- Scopes: `user-read-playback-state` and `user-modify-playback-state`.
+- Refresh token stored in Windows Credential Manager, never in a file.
+- Access token refreshed in the background before it expires, so a pause never waits for a refresh.
 
 **Endpoints**
 
-| Uso | Chamada |
+| Use | Call |
 | --- | --- |
-| Pausar | `PUT /v1/me/player/pause` |
-| Ler estado e dispositivo | `GET /v1/me/player` |
-| Retomar no dispositivo | `PUT /v1/me/player/play?device_id=<id>` |
-| Reativar dispositivo que saiu da lista | `PUT /v1/me/player` com `device_ids` e `play: true` |
+| Pause | `PUT /v1/me/player/pause` |
+| Read state and device | `GET /v1/me/player` |
+| Resume on device | `PUT /v1/me/player/play?device_id=<id>` |
+| Reactivate a device that left the list | `PUT /v1/me/player` with `device_ids` and `play: true` |
 
-**Latência:** manter a conexão HTTPS com `api.spotify.com` aquecida (keep-alive), para a pausa não pagar o handshake TLS.
+**Latency:** keep the HTTPS connection to `api.spotify.com` warm (keep-alive), so the pause does not pay for the TLS handshake.
 
-## 5. Máquina de estados
+## 5. State machine
 
-O controlador pausa primeiro e pergunta depois: a resposta da pausa diz se havia música, e só nesse caso existe retomada.
+The controller pauses first and asks later: the pause response tells whether music was playing, and only then is there a resume.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Ocioso
-    Ocioso --> Pausado: mic abre / pause aceito (guarda device_id)
-    Ocioso --> SemRetomada: mic abre / pause recusado (nada tocava)
-    SemRetomada --> Ocioso: mic fecha
-    Pausado --> Aguardando: mic fecha
-    Aguardando --> Pausado: novo ditado
-    Aguardando --> Retoma: tempo esgotou
-    Retoma --> Ocioso: play no mesmo dispositivo (ou desistência)
+    [*] --> Idle
+    Idle --> Paused: mic opens / pause accepted (store device_id)
+    Idle --> NoResume: mic opens / pause refused (nothing was playing)
+    NoResume --> Idle: mic closes
+    Paused --> Waiting: mic closes
+    Waiting --> Paused: new dictation
+    Waiting --> Resume: wait elapsed
+    Resume --> Idle: play on the same device (or give up)
 ```
 
-Um novo ditado durante a espera volta para Pausado sem enviar comando. Se nada estava tocando, o programa apenas aguarda o fim do ditado.
+A new dictation during the wait goes back to Paused without sending a command. If nothing was playing, the program just waits for dictation to end.
 
-**Ao abrir o microfone**
+**When the microphone opens**
 
-1. Enviar `pause` imediatamente, sem consulta prévia, para não somar latência.
-2. Sucesso (200 ou 204): havia música. Chamar `GET /v1/me/player` e guardar `device.id`, `device.name` e o horário da pausa.
-3. Recusa (403): nada estava tocando. Marcar o ciclo como sem retomada.
+1. Send `pause` immediately, with no prior check, to avoid adding latency.
+2. Success (200 or 204): music was playing. Call `GET /v1/me/player` and store `device.id`, `device.name`, and the pause time.
+3. Refusal (403): nothing was playing. Mark the cycle as no-resume.
 
-**Ao fechar o microfone**
+**When the microphone closes**
 
-1. Iniciar a espera de `resume_delay_ms`.
-2. Se o microfone abrir de novo antes do fim, cancelar a espera e voltar a Pausado.
+1. Start waiting `resume_delay_ms`.
+2. If the microphone opens again before the wait ends, cancel the wait and go back to Paused.
 
-**Ao fim da espera**
+**When the wait ends**
 
-1. Se a pausa durou mais que `max_pause_secs`, não retomar.
-2. Chamar `GET /v1/me/player`. Se `is_playing` for verdadeiro ou o dispositivo ativo for diferente do guardado, não retomar.
-3. Enviar `play` com o `device_id` guardado.
-4. Em 404, tentar uma transferência de reprodução para o mesmo `device_id` com `play: true`.
-5. Limpar o estado guardado e voltar a Ocioso.
+1. If the pause lasted longer than `max_pause_secs`, do not resume.
+2. Call `GET /v1/me/player`. If `is_playing` is true or the active device differs from the stored one, do not resume.
+3. Send `play` with the stored `device_id`.
+4. On 404, try one playback transfer to the same `device_id` with `play: true`.
+5. Clear the stored state and go back to Idle.
 
-O `device_id` guardado é a única fonte para a retomada. O programa nunca escolhe "o dispositivo ativo" nem um dispositivo padrão.
+The stored `device_id` is the only source for resuming. The program never picks "the active device" or a default device.
 
-## 6. Casos de borda e erros
+## 6. Edge cases and errors
 
-A regra geral é falhar em silêncio e nunca tocar música que o usuário não estava ouvindo. Todo erro vai para o log; nenhum abre janela.
+The general rule is to fail silently and never play music the user was not listening to. Every error goes to the log; none opens a window.
 
-| Situação | Comportamento |
+| Situation | Behavior |
 | --- | --- |
-| Nada tocando quando o ditado começa | A pausa é recusada pelo Spotify; o programa não retoma depois |
-| Ditados em sequência | Novo ditado durante a espera cancela a retomada; a música segue pausada |
-| Usuário dá play manualmente durante a pausa | Na retomada o estado já está tocando; o programa não faz nada |
-| Usuário troca de dispositivo durante a pausa | O dispositivo ativo difere do guardado; o programa não retoma |
-| Dispositivo guardado saiu da lista (404 no play) | Uma tentativa de transferência com `play: true` para o mesmo `device_id`; se falhar, desiste |
-| Ditado longo, acima do limite configurado | Não retoma automaticamente |
-| Sem rede ou timeout na pausa | Uma nova tentativa imediata; se falhar, segue sem pausar |
-| 401 em qualquer chamada | Renova o token e repete a chamada uma vez |
-| 429 (rate limit) | Respeita `Retry-After`; descarta a ação se o atraso passar de 2 s |
-| Refresh token revogado | Ícone da bandeja indica "reconectar"; nova autorização pelo menu |
-| Programa encerrado com música pausada por ele | Tenta retomar antes de sair |
-| Dispositivo restrito (não aceita comandos da API) | Log de aviso; sem ação |
+| Nothing playing when dictation starts | Spotify refuses the pause; the program does not resume afterwards |
+| Back-to-back dictations | A new dictation during the wait cancels the resume; the music stays paused |
+| User presses play manually during the pause | At resume time the state is already playing; the program does nothing |
+| User switches devices during the pause | The active device differs from the stored one; the program does not resume |
+| Stored device left the list (404 on play) | One transfer attempt with `play: true` to the same `device_id`; if it fails, give up |
+| Long dictation, above the configured limit | No automatic resume |
+| No network or timeout on pause | One immediate retry; if it fails, carry on without pausing |
+| 401 on any call | Refresh the token and repeat the call once |
+| 429 (rate limit) | Honor `Retry-After`; drop the action if the delay exceeds 2 s |
+| Refresh token revoked | Tray icon shows "reconnect"; new authorization from the menu |
+| Program exits with music it paused | Tries to resume before exiting |
+| Restricted device (does not accept API commands) | Warning in the log; no action |
 
-A latência entre o microfone abrir e a música parar fica entre 0,3 e 1 s no Echo. O início da fala pode pegar um resto de música, e isso é aceito.
+The latency between the microphone opening and the music stopping is between 0.3 and 1 s on the Echo. The start of speech may catch a bit of music, and that is accepted.
 
-## 7. Configuração e bandeja
+## 7. Configuration and tray
 
-A configuração fica em `%APPDATA%\flowpause\config.toml`, criada com os padrões na primeira execução.
+Configuration lives in `%APPDATA%\flowpause\config.toml`, created with defaults on first run.
 
-| Chave | Padrão | Significado |
+| Key | Default | Meaning |
 | --- | --- | --- |
-| `spotify_client_id` | vazio | Client ID do app no painel do Spotify |
-| `redirect_port` | 8888 | Porta do callback OAuth em loopback |
-| `process_match` | `wispr` | Trecho do nome do executável observado no registro |
-| `resume_delay_ms` | 2000 | Espera entre o fim do ditado e a retomada |
-| `max_pause_secs` | 300 | Acima disso a retomada automática é cancelada |
-| `autostart` | true | Iniciar com o Windows |
-| `log_level` | `info` | Nível de log |
+| `spotify_client_id` | empty | Client ID of the app in the Spotify dashboard |
+| `redirect_port` | 8888 | Loopback OAuth callback port |
+| `process_match` | `wispr` | Part of the executable name watched in the registry |
+| `resume_delay_ms` | 2000 | Wait between the end of dictation and the resume |
+| `max_pause_secs` | 300 | Above this, the automatic resume is canceled |
+| `autostart` | true | Start with Windows |
+| `log_level` | `info` | Log level |
 
-**Menu da bandeja**
+**Tray menu**
 
-- Ativado / Pausado (liga e desliga o comportamento sem fechar o programa)
-- Conectar ao Spotify / Reconectar
-- Iniciar com o Windows
-- Abrir pasta de logs
-- Sair
+- Enabled / Paused (turns the behavior on and off without closing the program)
+- Connect to Spotify / Reconnect
+- Start with Windows
+- Open logs folder
+- Exit
 
-O ícone tem três estados: ativo, desativado e sem conexão com o Spotify. O início automático usa a chave `Run` do usuário no registro. Uma segunda instância encerra ao detectar a primeira (mutex nomeado). Logs em `%LOCALAPPDATA%\flowpause\logs`, com rotação diária.
+The icon has three states: active, disabled, and not connected to Spotify. Autostart uses the user's `Run` key in the registry. A second instance exits when it detects the first (named mutex). Logs go to `%LOCALAPPDATA%\flowpause\logs`, with daily rotation.
 
-## 8. Fases de entrega
+## 8. Delivery phases
 
-A fase 0 é um portão: se o Echo não aceitar comandos pela Web API, o projeto para e a abordagem é revista antes de escrever o resto.
+Phase 0 is a gate: if the Echo does not accept Web API commands, the project stops and the approach is reviewed before writing the rest.
 
-| Fase | Entrega | Pronto quando |
+| Phase | Deliverable | Done when |
 | --- | --- | --- |
-| 0. Validação do Echo | CLI mínima: login PKCE, `status`, `pause`, `play --device <id>` | Com a música no Echo, `pause` e `play` funcionam e `status` mostra o Echo com `is_restricted: false` |
-| 1. Detector | Observador do registro que imprime os eventos no console | Cada ditado gera exatamente um início e um fim, sem falso positivo em 20 ditados |
-| 2. Controlador | Máquina de estados ligando detector e cliente Spotify | Os critérios de aceite 1 a 6 passam em modo console |
-| 3. Acabamento | Bandeja, configuração, início automático, logs, instância única | Todos os critérios de aceite passam com o binário de release |
+| 0. Echo validation | Minimal CLI: PKCE login, `status`, `pause`, `play --device <id>` | With music on the Echo, `pause` and `play` work and `status` shows the Echo with `is_restricted: false` |
+| 1. Detector | Registry watcher that prints events to the console | Each dictation produces exactly one start and one end, with no false positive across 20 dictations |
+| 2. Controller | State machine wiring the detector and the Spotify client | Acceptance criteria 1 to 6 pass in console mode |
+| 3. Finishing | Tray, configuration, autostart, logs, single instance | All acceptance criteria pass with the release binary |
 
-Na fase 0, registrar também o tempo entre o comando e o silêncio no Echo, e por quanto tempo o Echo continua na lista de dispositivos depois de pausado.
+In phase 0, also record the time between the command and silence on the Echo, and how long the Echo stays in the device list after being paused.
 
-## 9. Critérios de aceite
+## 9. Acceptance criteria
 
-Cada item é um teste manual com resultado observável.
+Each item is a manual test with an observable result.
 
-- [ ] 1. Música no Echo Dot: ao iniciar o ditado ela para em até 1 s; ao terminar, volta no Echo cerca de 2 s depois.
-- [ ] 2. Música no Spotify do PC: mesmo comportamento, com retomada no PC.
-- [ ] 3. Nada tocando: ditar não inicia música em nenhum dispositivo.
-- [ ] 4. Três ditados com menos de 2 s entre eles: a música para uma vez e volta uma vez, ao final do terceiro.
-- [ ] 5. Play manual durante a pausa: o programa não envia comando ao terminar o ditado.
-- [ ] 6. Troca de dispositivo durante a pausa: o programa não retoma no dispositivo antigo.
-- [ ] 7. Reinício do Windows: o programa sobe sozinho e funciona sem novo login no Spotify.
-- [ ] 8. Sem internet: ditar não trava nem atrasa o Wispr Flow, e o erro aparece no log.
-- [ ] 9. Em repouso: menos de 15 MB de memória e 0% de CPU.
-- [ ] 10. "Desativado" no menu da bandeja: ditar não pausa a música.
+- [ ] 1. Music on the Echo Dot: when dictation starts it stops within 1 s; when dictation ends, it comes back on the Echo about 2 s later.
+- [ ] 2. Music in Spotify on the PC: same behavior, resuming on the PC.
+- [ ] 3. Nothing playing: dictating does not start music on any device.
+- [ ] 4. Three dictations less than 2 s apart: the music stops once and comes back once, at the end of the third.
+- [ ] 5. Manual play during the pause: the program sends no command when dictation ends.
+- [ ] 6. Device switch during the pause: the program does not resume on the old device.
+- [ ] 7. Windows restart: the program starts on its own and works without a new Spotify login.
+- [ ] 8. No internet: dictating does not freeze or delay Wispr Flow, and the error shows up in the log.
+- [ ] 9. At rest: less than 15 MB of memory and 0% CPU.
+- [ ] 10. "Disabled" in the tray menu: dictating does not pause the music.
 
-## 10. Riscos e pontos a validar
+## 10. Risks and open questions
 
-O único risco que inviabiliza o projeto é o primeiro, e a fase 0 existe para resolvê-lo.
+The only risk that would make the project unviable is the first one, and phase 0 exists to settle it.
 
-| Risco | Impacto | Como validar ou mitigar |
+| Risk | Impact | How to validate or mitigate |
 | --- | --- | --- |
-| Echo Dot recusar comandos da Web API (dispositivo restrito) | Projeto inviável por essa via | Fase 0. Não confirmado até aqui |
-| Resposta do Spotify ao pausar o que já está pausado não ser 403 | A detecção de "estava tocando" falha | Fase 0. Alternativa: ler o estado antes de pausar, com custo de latência |
-| Echo sair da lista de dispositivos após pausa | Retomada falha em ditados longos | Medir na fase 0; fallback por transferência de reprodução |
-| Atualização do Flow manter o microfone sempre aberto | Gatilho deixa de funcionar | Detector isolado atrás de uma interface; hotkey ou UI Automation entram como fonte alternativa |
-| Spotify restringir os endpoints de player em Development Mode | Pausa e retomada param | Sem mitigação técnica; acompanhar os anúncios do Spotify for Developers |
-| Formato da chave de registro mudar em versão futura do Windows | Detector para | Alternativa: sessões de captura via WASAPI |
+| Echo Dot refuses Web API commands (restricted device) | Project unviable this way | Phase 0. Not confirmed so far |
+| Spotify's response to pausing an already paused player is not 403 | Detecting "was playing" fails | Phase 0. Alternative: read the state before pausing, at a latency cost |
+| Echo leaves the device list after a pause | Resume fails after long dictations | Measure in phase 0; fallback via playback transfer |
+| A Flow update keeps the microphone always open | Trigger stops working | Detector isolated behind an interface; hotkey or UI Automation as an alternative source |
+| Spotify restricts player endpoints in Development Mode | Pause and resume stop working | No technical mitigation; follow Spotify for Developers announcements |
+| Registry key format changes in a future Windows version | Detector stops | Alternative: WASAPI capture sessions |
 
-**Nota de 27/11/2026 (fase 1):** a seção 3 diz que existem duas entradas "Wispr Flow". Na verdade, `NonPackaged` tem 86 subchaves com `wispr`, uma por versão instalada do Flow (por exemplo, `C:#Users#<usuario>#AppData#Local#WisprFlow#app-1.6.1583#Wispr Flow.exe`). Cada atualização cria uma entrada nova, e as antigas ficam. O detector segue a regra da seção 3: observa todas e considera o ditado ativo se qualquer uma tiver `LastUsedTimeStop` igual a 0. Risco novo: se uma entrada antiga ficar presa com `LastUsedTimeStop` igual a 0 (por exemplo, se o Flow for encerrado à força durante um ditado), o detector fica sempre ativo. Ainda não foi observado.
+**Note of 2026-11-27 (phase 1):** section 3 says there are two "Wispr Flow" entries. In fact, `NonPackaged` has 86 subkeys containing `wispr`, one per installed Flow version (for example, `C:#Users#<user>#AppData#Local#WisprFlow#app-1.6.1583#Wispr Flow.exe`). Each update creates a new entry, and the old ones remain. The detector follows the section 3 rule: it watches all of them and treats dictation as active if any has `LastUsedTimeStop` equal to 0. New risk: if an old entry gets stuck with `LastUsedTimeStop` equal to 0 (for example, if Flow is killed during a dictation), the detector stays active forever. Not observed yet.
 
-**Nota de 27/11/2026 (fase 1, teste do `watch`): o registro deixou de ser atualizado.** Em 5 ditados, `flowpause watch` não emitiu nenhum evento. Diagnóstico:
+**Note of 2026-11-27 (phase 1, `watch` test): the registry stopped being updated.** Over 5 dictations, `flowpause watch` emitted no events. Diagnosis:
 
-- A última gravação de `LastUsedTimeStart`/`LastUsedTimeStop` em todo o `CapabilityAccessManager` (HKCU e HKLM, qualquer app e qualquer permissão) foi em 24/11/2026 às 07:36.
-- Em 24/11/2026 foram instaladas as atualizações KB5132061 e KB5132688. O Windows está no build 26300.9974 (26H2).
-- O Wispr Flow em uso é o `app-1.6.1631`, instalado em 26/11/2026, e não tem subchave em `NonPackaged`. A versão mais nova no registro é a 1.6.1583, usada pela última vez em 23/11/2026.
-- A pasta `C:\ProgramData\Microsoft\Windows\CapabilityAccessManager` existe, mas só administrador tem acesso.
+- The last write of `LastUsedTimeStart`/`LastUsedTimeStop` anywhere in `CapabilityAccessManager` (HKCU and HKLM, any app, any permission) was on 2026-11-24 at 07:36.
+- Updates KB5132061 and KB5132688 were installed on 2026-11-24. Windows is on build 26300.9974 (26H2).
+- The Wispr Flow in use is `app-1.6.1631`, installed on 2026-11-26, and it has no subkey under `NonPackaged`. The newest version in the registry is 1.6.1583, last used on 2026-11-23.
+- The folder `C:\ProgramData\Microsoft\Windows\CapabilityAccessManager` exists, but only administrators can access it.
 
-Conclusão: neste build do Windows, a fonte de sinal da seção 3 não funciona mais. O risco "Formato da chave de registro mudar em versão futura do Windows" aconteceu. A alternativa já prevista nesta tabela é observar as sessões de captura de áudio via WASAPI.
+Conclusion: on this Windows build, the section 3 signal source no longer works. The risk "Registry key format changes in a future Windows version" happened. The alternative already listed in this table is to watch audio capture sessions through WASAPI.
 
-Decisão (27/11/2026, aprovada pelo autor): o detector passou a usar WASAPI. Ele observa as sessões de captura de todos os microfones ativos (`IAudioSessionManager2`, com notificação de sessão nova e de mudança de estado) e filtra pelo caminho do executável do processo (padrão `wispr`). O ditado está ativo se alguma sessão casada estiver em `AudioSessionStateActive`. Também reage a microfone conectado ou removido. As regras 4 e 6 da seção 3 continuam valendo: evento só na transição, e ditado já em andamento na partida gera início. A seção 3 descreve a fonte antiga e fica como histórico.
+Decision (2026-11-27, approved by the author): the detector now uses WASAPI. It watches the capture sessions of every active microphone (`IAudioSessionManager2`, with notifications for new sessions and state changes) and filters by the process executable path (default `wispr`). Dictation is active if any matching session is in `AudioSessionStateActive`. It also reacts to microphones being connected or removed. Rules 4 and 6 of section 3 still apply: events only on transitions, and dictation already in progress at startup produces a start event. Section 3 describes the old source and stays as history.
 
-## Referências
+## References
 
 - [Spotify Web API: Pause Playback](https://developer.spotify.com/console/put-pause)
-- [Spotify for Developers: Update on Developer Access and Platform Security, 6 fev 2026](https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security)
-- [Wispr Flow: auto-mute e pausa de mídia durante o ditado](https://docs.wisprflow.ai/articles/7231650589-auto-mute-music-while-dictating-on-macos-how-audio-detection-works)
+- [Spotify for Developers: Update on Developer Access and Platform Security, 2026-02-06](https://developer.spotify.com/blog/2026-02-06-update-on-developer-access-and-platform-security)
+- [Wispr Flow: auto-mute and media pause during dictation](https://docs.wisprflow.ai/articles/7231650589-auto-mute-music-while-dictating-on-macos-how-audio-detection-works)

@@ -35,14 +35,14 @@ Safety rules:
 ## Limitations
 
 - **Windows 11 and Spotify only.** Other players and other operating systems are out of scope.
-- **Requires Spotify Premium** and your own app in the Spotify developer dashboard (free, in Development Mode). See [`docs/CLIENT-ID.md`](docs/CLIENT-ID.md) (in Portuguese).
+- **Requires Spotify Premium** and your own app in the Spotify developer dashboard (free, in Development Mode). See [`docs/CLIENT-ID.md`](docs/CLIENT-ID.md).
 - **Latency.** In tests, each Web API call took 0.6 to 1.2 s on a new connection. Pausing takes two calls (a state check, then the pause), so the start of your speech may catch a bit of music. With the connection already open it should be faster; this has not been measured yet.
 - **Depends on the Spotify Web API.** If Spotify restricts player commands for apps in Development Mode, flowpause stops working.
 - **Depends on how Wispr Flow uses the microphone.** Detection looks for `wispr` in the executable path. If Flow changes its process or starts keeping the microphone open all the time, the detector needs an update.
 - **Turn off Wispr Flow's own media pause.** With both enabled, they can fight each other when music plays on the PC.
 - **No tray icon yet.** It runs in a console (`flowpause run`) or in the background, starting with Windows (`flowpause autostart on`).
 
-The first version of the detector read microphone usage from the Windows registry. After a Windows update on 2026-11-24, the registry stopped being updated, and the detector moved to WASAPI. Details in section 10 of [`docs/spec.md`](docs/spec.md) (in Portuguese).
+The first version of the detector read microphone usage from the Windows registry. After a Windows update on 2026-11-24, the registry stopped being updated, and the detector moved to WASAPI. Details in section 10 of [`docs/spec.md`](docs/spec.md).
 
 **Current status: phases 1 and 2.** The final behavior runs in a console (`flowpause run`) or in the background, starting with Windows (`flowpause autostart on`). There is no tray icon or configuration file yet (phase 3). Test results: [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md) and [`docs/FASE1-2-RESULTADOS.md`](docs/FASE1-2-RESULTADOS.md).
 

@@ -1,50 +1,50 @@
-# Onde pegar o Client ID do Spotify
+# Where to get the Spotify Client ID
 
-O `flowpause` precisa do Client ID de um app que você mesmo cria no painel de desenvolvedor do Spotify. O app é só seu, é gratuito e leva uns 5 minutos para criar. O client secret não é usado.
+`flowpause` needs the Client ID of an app that you create yourself in the Spotify developer dashboard. The app is yours alone, it is free, and it takes about 5 minutes to create. The client secret is not used.
 
-## Antes de começar
+## Before you start
 
-- Use a mesma conta Spotify **Premium** que toca no Echo e no PC. Desde fevereiro de 2026, o Development Mode exige que o dono do app seja Premium.
-- Na primeira vez, o painel pede para aceitar os termos de desenvolvedor e pode pedir para confirmar o e-mail.
+- Use the same Spotify **Premium** account that plays on the Echo and on the PC. Since February 2026, Development Mode requires the app owner to have Premium.
+- The first time, the dashboard asks you to accept the developer terms and may ask you to confirm your email.
 
-## Passo a passo
+## Step by step
 
-1. Abra <https://developer.spotify.com/dashboard> e entre com a sua conta Spotify.
-2. Clique em **Create app**.
-3. Preencha o formulário:
+1. Open <https://developer.spotify.com/dashboard> and log in with your Spotify account.
+2. Click **Create app**.
+3. Fill in the form:
 
-   | Campo | O que colocar |
+   | Field | What to enter |
    | --- | --- |
-   | App name | `flowpause` (ou outro nome) |
-   | App description | Qualquer texto, por exemplo `Pausa o Spotify durante o ditado` |
-   | Website | Deixe em branco |
-   | Redirect URIs | `http://127.0.0.1:8888/callback` e clique em **Add** |
-   | Which API/SDKs are you planning to use? | Marque **Web API** |
+   | App name | `flowpause` (or another name) |
+   | App description | Any text, for example `Pauses Spotify during dictation` |
+   | Website | Leave empty |
+   | Redirect URIs | `http://127.0.0.1:8888/callback`, then click **Add** |
+   | Which API/SDKs are you planning to use? | Check **Web API** |
 
-4. Aceite os termos e clique em **Save**.
-5. Na página do app, clique em **Settings**.
-6. Em **Basic Information**, copie o valor de **Client ID**: 32 caracteres, letras de `a` a `f` e números. Não clique em **View client secret**, porque o secret não é usado.
+4. Accept the terms and click **Save**.
+5. On the app page, click **Settings**.
+6. Under **Basic Information**, copy the **Client ID** value: 32 characters, letters `a` to `f` and digits. Do not click **View client secret**; the secret is not used.
 
-## Usar o Client ID
+## Using the Client ID
 
-Rode o script de instalação e cole o Client ID quando ele pedir:
+Run the install script and paste the Client ID when it asks:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 ```
 
-Ou passe direto:
+Or pass it directly:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -ClientId <seu client id>
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -ClientId <your client id>
 ```
 
-O script grava o valor na variável de usuário `FLOWPAUSE_CLIENT_ID`. O Client ID não é segredo, mas não precisa ir para o git.
+The script saves the value in the user variable `FLOWPAUSE_CLIENT_ID`. The Client ID is not a secret, but it does not need to go into git.
 
-## Se o login falhar
+## If login fails
 
-| Mensagem no navegador | Causa | O que fazer |
+| Message in the browser | Cause | What to do |
 | --- | --- | --- |
-| `INVALID_CLIENT: Invalid client` | Client ID errado ou incompleto | Copie de novo em **Settings > Basic Information** |
-| `INVALID_CLIENT: Invalid redirect URI` | A Redirect URI do app não é exatamente `http://127.0.0.1:8888/callback` | Corrija em **Settings > Redirect URIs**. Use `127.0.0.1`, não `localhost` (o Spotify não aceita `localhost`) |
-| Usuário não registrado / não autorizado | A conta que fez login não está na lista do app | Em **User Management**, adicione o nome e o e-mail da sua conta Spotify |
+| `INVALID_CLIENT: Invalid client` | Wrong or incomplete Client ID | Copy it again from **Settings > Basic Information** |
+| `INVALID_CLIENT: Invalid redirect URI` | The app's Redirect URI is not exactly `http://127.0.0.1:8888/callback` | Fix it in **Settings > Redirect URIs**. Use `127.0.0.1`, not `localhost` (Spotify does not accept `localhost`) |
+| User not registered / not authorized | The account that logged in is not on the app's list | In **User Management**, add the name and email of your Spotify account |

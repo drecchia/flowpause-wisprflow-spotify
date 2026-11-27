@@ -1,42 +1,42 @@
-# Fase 0 — Resultados
+# Phase 0 — Results
 
-Data do teste: 27/11/2026
-Versão do app Spotify no PC: não registrada
-Modelo do Echo: Echo Dot ("<nome-do-echo>")
+Test date: 2026-11-27
+Spotify app version on the PC: not recorded
+Echo model: Echo Dot ("<echo-name>")
 
-Os tempos são de chamadas a frio: cada execução da CLI abre uma conexão HTTPS nova (handshake TLS incluído).
+Times are cold calls: each CLI run opens a new HTTPS connection (TLS handshake included).
 
 ## Echo Dot
 
-| # | Passo | Comando | HTTP | ms | Observação |
+| # | Step | Command | HTTP | ms | Notes |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Login | `flowpause login` | — | — | Feito pelo `scripts\install.ps1` + login; funcionou |
-| 2 | Estado com música no Echo | `flowpause status` | 200 | 1250 | `id`: `<id-do-echo>` · `is_restricted`: false · `type`: Speaker |
-| 3 | Pausar | `flowpause pause` | 200 | 784 | Relato: "tudo funcionou". Tempo até o silêncio: não medido |
-| 4 | Pausar de novo (H2) | `flowpause pause` | não executado | | |
-| 5 | Retomar | `flowpause play --device <id>` | 200 | 631 | Relato: "tudo funcionou" |
-| 6a | Pausar antes da espera | `flowpause pause` | não executado | | |
-| 6b | Lista após 5 min | `flowpause devices` | não executado | | |
-| 6c | Retomar após 5 min | `flowpause play --device <id>` | não executado | | |
-| 6d | Transferir (só se 6c deu 404) | `flowpause transfer --device <id>` | não executado | | |
+| 1 | Login | `flowpause login` | — | — | Done with `scripts\install.ps1` + login; worked |
+| 2 | State with music on the Echo | `flowpause status` | 200 | 1250 | `id`: `<echo-id>` · `is_restricted`: false · `type`: Speaker |
+| 3 | Pause | `flowpause pause` | 200 | 784 | Report: "everything worked". Time to silence: not measured |
+| 4 | Pause again (H2) | `flowpause pause` | not run | | |
+| 5 | Resume | `flowpause play --device <id>` | 200 | 631 | Report: "everything worked" |
+| 6a | Pause before the wait | `flowpause pause` | not run | | |
+| 6b | Device list after 5 min | `flowpause devices` | not run | | |
+| 6c | Resume after 5 min | `flowpause play --device <id>` | not run | | |
+| 6d | Transfer (only if 6c returned 404) | `flowpause transfer --device <id>` | not run | | |
 
-## Spotify do PC
+## Spotify on the PC
 
-| # | Passo | Comando | HTTP | ms | Observação |
+| # | Step | Command | HTTP | ms | Notes |
 | --- | --- | --- | --- | --- | --- |
-| 2 | Estado com música no PC | `flowpause status` | 200 | 1098 | `id`: `<id-do-pc>` · `name`: <nome-do-pc> · `is_restricted`: false |
-| 3 | Pausar | `flowpause pause` | não registrado | | |
-| 4 | Pausar de novo (H2) | `flowpause pause` | não executado | | |
-| 5 | Retomar | `flowpause play --device <id>` | não registrado | | |
+| 2 | State with music on the PC | `flowpause status` | 200 | 1098 | `id`: `<pc-id>` · `name`: <pc-name> · `is_restricted`: false |
+| 3 | Pause | `flowpause pause` | not recorded | | |
+| 4 | Pause again (H2) | `flowpause pause` | not run | | |
+| 5 | Resume | `flowpause play --device <id>` | not recorded | | |
 
-Extra: `flowpause status` sem reprodução ativa devolveu HTTP 204 em 1183 ms.
+Extra: `flowpause status` with no active playback returned HTTP 204 in 1183 ms.
 
-## Conclusão
+## Conclusion
 
-| Item | Resultado |
+| Item | Result |
 | --- | --- |
-| H1: Echo aceita `pause` e `play` | Confirmada: pause 200, play 200, `is_restricted: false` |
-| H2: `pause` já pausado devolve 403 | Não testada. Por isso o controlador da fase 2 consulta o estado antes de pausar |
-| Tempo entre o comando e o silêncio no Echo | Não medido |
-| Tempo que o Echo fica na lista depois de pausado | Não medido |
-| Divergências em relação a `docs/spec.md` | Nenhuma. O pause devolveu 200 (a spec aceita 200 ou 204) |
+| H1: Echo accepts `pause` and `play` | Confirmed: pause 200, play 200, `is_restricted: false` |
+| H2: `pause` when already paused returns 403 | Not tested. That is why the phase 2 controller checks the state before pausing |
+| Time between the command and silence on the Echo | Not measured |
+| How long the Echo stays in the list after being paused | Not measured |
+| Differences from `docs/spec.md` | None. Pause returned 200 (the spec accepts 200 or 204) |
