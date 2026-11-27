@@ -11,16 +11,19 @@ Utilitário de bandeja para Windows que pausa o Spotify quando o Wispr Flow come
 
 ## 1. Criar o app no painel do Spotify
 
-1. Acesse <https://developer.spotify.com/dashboard> com a conta Premium e clique em **Create app**.
-2. Preencha nome e descrição livres.
-3. Em **Redirect URIs**, adicione exatamente `http://127.0.0.1:8888/callback`.
-4. Em **Which API/SDKs are you planning to use?**, marque **Web API**.
-5. Aceite os termos e salve.
-6. Abra **Settings** do app e copie o **Client ID**. O client secret não é usado.
+Siga [`docs/CLIENT-ID.md`](docs/CLIENT-ID.md): como criar o app, onde copiar o Client ID e o que fazer se o login falhar.
 
-O app fica em Development Mode, o que basta para uso pessoal. Se o login falhar dizendo que o usuário não está registrado, adicione o e-mail da sua conta Spotify em **User Management**.
+## 2. Instalação com script (recomendado)
 
-## 2. Definir `FLOWPAUSE_CLIENT_ID`
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+O script primeiro avisa sobre o Kaspersky e espera Enter. Ele pode pôr em quarentena os executáveis da compilação, e o build falha com "Acesso negado". Adicione exclusões para a pasta `target\` do projeto e para `%USERPROFILE%\.cargo\bin\flowpause.exe`, ou pause a proteção. Depois o script pede o Client ID, grava `FLOWPAUSE_CLIENT_ID` nas variáveis do usuário, roda `cargo build --release` e `cargo install --path . --locked`, e confere se o `flowpause.exe` instalado executa.
+
+Para instalar à mão, siga as seções 2a e 3.
+
+## 2a. Definir `FLOWPAUSE_CLIENT_ID`
 
 Só na sessão atual do PowerShell:
 
