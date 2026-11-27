@@ -34,6 +34,10 @@ impl AccessToken {
     pub fn expires_soon(&self) -> bool {
         now_unix() + EXPIRY_MARGIN_SECS >= self.expires_at
     }
+
+    pub fn secs_left(&self) -> u64 {
+        self.expires_at.saturating_sub(now_unix())
+    }
 }
 
 #[derive(Deserialize)]

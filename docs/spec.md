@@ -217,6 +217,8 @@ O único risco que inviabiliza o projeto é o primeiro, e a fase 0 existe para r
 | Spotify restringir os endpoints de player em Development Mode | Pausa e retomada param | Sem mitigação técnica; acompanhar os anúncios do Spotify for Developers |
 | Formato da chave de registro mudar em versão futura do Windows | Detector para | Alternativa: sessões de captura via WASAPI |
 
+**Nota de 27/11/2026 (fase 1):** a seção 3 diz que existem duas entradas "Wispr Flow". Na verdade, `NonPackaged` tem 86 subchaves com `wispr`, uma por versão instalada do Flow (por exemplo, `C:#Users#<usuario>#AppData#Local#WisprFlow#app-1.6.1583#Wispr Flow.exe`). Cada atualização cria uma entrada nova, e as antigas ficam. O detector segue a regra da seção 3: observa todas e considera o ditado ativo se qualquer uma tiver `LastUsedTimeStop` igual a 0. Risco novo: se uma entrada antiga ficar presa com `LastUsedTimeStop` igual a 0 (por exemplo, se o Flow for encerrado à força durante um ditado), o detector fica sempre ativo. Ainda não foi observado.
+
 ## Referências
 
 - [Spotify Web API: Pause Playback](https://developer.spotify.com/console/put-pause)

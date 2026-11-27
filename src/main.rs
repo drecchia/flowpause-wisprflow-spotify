@@ -1,14 +1,26 @@
+#[macro_use]
+mod logging;
+mod controller;
+mod detector;
 mod spotify;
 
 use std::process::ExitCode;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use reqwest::StatusCode;
+use tokio::sync::mpsc;
 
+use controller::{Config, Controller, PauseStrategy, Player};
+use detector::{DictationSource, RegistryDetector};
 use spotify::{ApiResponse, Device, DeviceList, PlaybackState};
 
-/// flowpause, fase 0: valida o controle do Spotify (Echo Dot e PC) pela Web API.
+/// `docs/FASE0-RESULTADOS.md` não registra o 403 ao pausar o que já está pausado (H2 não testada),
+/// então o controlador consulta o estado antes de pausar.
+const PAUSE_STRATEGY: PauseStrategy = PauseStrategy::CheckFirst;
+
+/// flowpause: pausa o Spotify durante o ditado do Wispr Flow e retoma no mesmo dispositivo.
 #[derive(Parser)]
 #[command(version)]
 struct Cli {
@@ -36,6 +48,24 @@ enum Command {
         #[arg(long)]
         device: String,
     },
+    /// Só o detector: imprime cada início e fim de ditado
+    Watch {
+        /// Trecho do nome da subchave do registro (sem diferenciar maiúsculas)
+        #[arg(long = "match", default_value = "wispr")]
+        pattern: String,
+    },
+    /// Detector + controlador: pausa durante o ditado e retoma depois. Ctrl+C para sair
+    Run {
+        /// Espera entre o fim do ditado e a retomada
+        #[arg(long, default_value_t = 2000)]
+        resume_delay_ms: u64,
+        /// Acima disso a retomada automática é cancelada
+        #[arg(long, default_value_t = 300)]
+        max_pause_secs: u64,
+        /// Trecho do nome da subchave do registro (sem diferenciar maiúsculas)
+        #[arg(long = "match", default_value = "wispr")]
+        pattern: String,
+    },
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -51,19 +81,30 @@ async fn main() -> ExitCode {
 }
 
 async fn run(command: Command) -> Result<ExitCode> {
-    let client_id = std::env::var("FLOWPAUSE_CLIENT_ID")
-        .ok()
-        .filter(|id| !id.trim().is_empty())
-        .context("FLOWPAUSE_CLIENT_ID não definida; veja o README")?;
-    let mut client = spotify::Client::new(client_id)?;
-
     let response = match command {
+        Command::Watch { pattern } => {
+            watch(&pattern).await?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        Command::Run {
+            resume_delay_ms,
+            max_pause_secs,
+            pattern,
+        } => {
+            let config = Config {
+                strategy: PAUSE_STRATEGY,
+                resume_delay: Duration::from_millis(resume_delay_ms),
+                max_pause: Duration::from_secs(max_pause_secs),
+            };
+            run_controller(spotify_client()?, config, &pattern).await?;
+            return Ok(ExitCode::SUCCESS);
+        }
         Command::Login => {
-            client.login().await?;
+            spotify_client()?.login().await?;
             return Ok(ExitCode::SUCCESS);
         }
         Command::Status => {
-            let response = client.player().await?;
+            let response = spotify_client()?.player().await?;
             report(&response);
             match response.status {
                 StatusCode::OK => print_playback(&response.json()?),
@@ -73,7 +114,7 @@ async fn run(command: Command) -> Result<ExitCode> {
             response
         }
         Command::Devices => {
-            let response = client.devices().await?;
+            let response = spotify_client()?.devices().await?;
             report(&response);
             if response.status == StatusCode::OK {
                 let list: DeviceList = response.json()?;
@@ -87,9 +128,9 @@ async fn run(command: Command) -> Result<ExitCode> {
             }
             response
         }
-        Command::Pause => report_only(client.pause().await?),
-        Command::Play { device } => report_only(client.play(&device).await?),
-        Command::Transfer { device } => report_only(client.transfer(&device).await?),
+        Command::Pause => report_only(spotify_client()?.pause().await?),
+        Command::Play { device } => report_only(spotify_client()?.play(&device).await?),
+        Command::Transfer { device } => report_only(spotify_client()?.transfer(&device).await?),
     };
 
     Ok(if response.status.is_success() {
@@ -99,6 +140,50 @@ async fn run(command: Command) -> Result<ExitCode> {
     })
 }
 
+fn spotify_client() -> Result<spotify::Client> {
+    let client_id = std::env::var("FLOWPAUSE_CLIENT_ID")
+        .ok()
+        .filter(|id| !id.trim().is_empty())
+        .context("FLOWPAUSE_CLIENT_ID não definida; veja o README")?;
+    spotify::Client::new(client_id)
+}
+
+async fn watch(pattern: &str) -> Result<()> {
+    let (events, mut receiver) = mpsc::channel(16);
+    RegistryDetector::new(pattern).start(events)?;
+    logln!("observando o microfone. Ctrl+C para sair.");
+    while let Some(event) = receiver.recv().await {
+        logln!("{event}");
+    }
+    bail!("o detector parou")
+}
+
+async fn run_controller(client: spotify::Client, config: Config, pattern: &str) -> Result<()> {
+    logln!(
+        "flowpause: estratégia {:?}, espera {} ms, pausa máxima {} s",
+        config.strategy,
+        config.resume_delay.as_millis(),
+        config.max_pause.as_secs()
+    );
+    // Valida o login e abre a conexão HTTPS antes do primeiro ditado.
+    client
+        .playback()
+        .await
+        .context("falha na consulta inicial ao Spotify")?;
+    client.spawn_token_refresher();
+
+    let (events, receiver) = mpsc::channel(16);
+    RegistryDetector::new(pattern).start(events)?;
+    logln!("pronto. Ctrl+C para sair.");
+
+    let shutdown = async {
+        if tokio::signal::ctrl_c().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    };
+    Controller::new(client, config).run(receiver, shutdown).await
+}
+
 fn report(response: &ApiResponse) {
     println!("{}", response.request);
     if let Some(refresh) = response.token_refresh {
@@ -106,6 +191,9 @@ fn report(response: &ApiResponse) {
     }
     if response.retried_after_401 {
         println!("primeira tentativa: HTTP 401, repetida com token novo");
+    }
+    if let Some(wait) = response.retried_after_429 {
+        println!("primeira tentativa: HTTP 429, repetida após {} ms", wait.as_millis());
     }
     println!("HTTP {} | {} ms", response.status, response.elapsed.as_millis());
     if !response.status.is_success() && !response.body.is_empty() {
