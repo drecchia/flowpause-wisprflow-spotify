@@ -88,6 +88,15 @@ cargo install --path .
 
 `cargo install` copies `flowpause.exe` and `flowpause-bg.exe` to `%USERPROFILE%\.cargo\bin`, which is already on the `PATH`. Without installing, use `.\target\release\flowpause.exe` instead of `flowpause`.
 
+### Prebuilt binaries
+
+Each [release](https://github.com/drecchia/flowpause-wisprflow-spotify/releases) has a `.zip` with `flowpause.exe` and `flowpause-bg.exe`, built by GitHub Actions. Extract both into the same folder on your `PATH` and set `FLOWPAUSE_CLIENT_ID` (section 2a). The binaries are not signed, so Windows SmartScreen and antivirus software may warn about them.
+
+## Development
+
+- **CI** (`.github/workflows/ci.yml`): every push to `main` and every pull request runs build, clippy (`-D warnings`), and tests on `windows-latest`.
+- **Releases** ([Release Please](https://github.com/googleapis/release-please)): use [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`...). Release Please keeps a release pull request open with the next version and the `CHANGELOG.md`. Merging it creates the tag and the GitHub release, and attaches the Windows binaries.
+
 ## 4. Commands
 
 | Command | What it does |
