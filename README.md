@@ -2,7 +2,7 @@
 
 Utilitário de bandeja para Windows que pausa o Spotify quando o Wispr Flow começa a ouvir e retoma no mesmo dispositivo quando o ditado termina. A especificação está em [`docs/spec.md`](docs/spec.md).
 
-**Estado atual: fases 1 e 2.** O comportamento final roda em modo console (`flowpause run`). Ainda não há bandeja, início com o Windows nem arquivo de configuração (fase 3). Resultados: [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md) e [`docs/FASE1-2-RESULTADOS.md`](docs/FASE1-2-RESULTADOS.md).
+**Estado atual: fases 1 e 2.** O comportamento final roda em modo console (`flowpause run`) ou em segundo plano, iniciando com o Windows (`flowpause autostart on`). Ainda não há bandeja nem arquivo de configuração (fase 3). Resultados: [`docs/FASE0-RESULTADOS.md`](docs/FASE0-RESULTADOS.md) e [`docs/FASE1-2-RESULTADOS.md`](docs/FASE1-2-RESULTADOS.md).
 
 ## Requisitos
 
@@ -44,7 +44,7 @@ cargo build --release
 cargo install --path .
 ```
 
-`cargo install` copia `flowpause.exe` para `%USERPROFILE%\.cargo\bin`, que já está no `PATH`. Sem instalar, use `.\target\release\flowpause.exe` no lugar de `flowpause`.
+`cargo install` copia `flowpause.exe` e `flowpause-bg.exe` para `%USERPROFILE%\.cargo\bin`, que já está no `PATH`. Sem instalar, use `.\target\release\flowpause.exe` no lugar de `flowpause`.
 
 ## 4. Comandos
 
@@ -58,6 +58,7 @@ cargo install --path .
 | `flowpause transfer --device <id>` | `PUT /v1/me/player` com `{"device_ids":["<id>"],"play":true}` |
 | `flowpause watch [--match wispr]` | Só o detector. Imprime as sessões de captura encontradas e `ditado iniciou` / `ditado terminou` com horário. Não usa o Spotify |
 | `flowpause run [--resume-delay-ms 2000] [--max-pause-secs 300] [--match wispr]` | Detector + controlador: pausa durante o ditado e retoma no mesmo dispositivo. Ctrl+C para sair |
+| `flowpause autostart on` / `off` | Liga ou desliga o início com o Windows |
 
 Cada comando imprime a chamada, o status HTTP, o tempo da chamada em ms e o corpo do erro, se houver. Se o access token precisou ser renovado, a renovação aparece numa linha à parte, com o próprio tempo; o número da chamada não inclui a renovação. O código de saída é 0 para resposta 2xx e 1 para o resto.
 
@@ -80,6 +81,27 @@ O detector observa as sessões de captura de áudio do Windows (WASAPI) em todos
 - Um novo ditado durante a espera cancela a retomada.
 - Em 404 no play, tenta uma transferência para o mesmo dispositivo.
 - Ctrl+C com a música pausada pelo programa: tenta retomar antes de sair.
+
+### Início com o Windows
+
+```powershell
+flowpause autostart on    # liga
+flowpause-bg              # inicia agora, sem reiniciar
+flowpause autostart off   # desliga
+```
+
+- `autostart on` grava o valor `flowpause` em `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, apontando para `flowpause-bg.exe`.
+- No login, `flowpause-bg.exe` inicia `flowpause run` sem janela, com os padrões (`--resume-delay-ms 2000`, `--max-pause-secs 300`, `--match wispr`).
+- A saída vai para `%LOCALAPPDATA%\flowpause\logs\flowpause.log`. O arquivo só cresce; a rotação fica para a fase 3. Para acompanhar ao vivo:
+
+  ```powershell
+  Get-Content "$env:LOCALAPPDATA\flowpause\logs\flowpause.log" -Wait -Tail 20
+  ```
+
+- Só roda uma cópia por vez. Com a cópia automática ativa, `flowpause run` no terminal recusa e aponta o log.
+- Sem rede no login, ele não fecha: avisa no log e segue. As chamadas ao Spotify voltam a funcionar quando a rede voltar.
+- Ainda não há bandeja. Para parar a cópia em segundo plano: `Stop-Process -Name flowpause`. Encerrar assim não retoma a música, se ela estiver pausada pelo programa naquele momento.
+- O Kaspersky pode pôr `flowpause-bg.exe` em quarentena: inclua o arquivo nas exclusões.
 
 ## 5. Roteiro de teste da fase 0
 

@@ -18,18 +18,20 @@ function Fail([string]$Message) {
 $repo = Split-Path -Parent $PSScriptRoot
 $targetDir = Join-Path $repo 'target'
 $installedExe = Join-Path $env:USERPROFILE '.cargo\bin\flowpause.exe'
+$installedLauncher = Join-Path $env:USERPROFILE '.cargo\bin\flowpause-bg.exe'
 
 Write-Host @"
 
 ANTES DE CONTINUAR: Kaspersky
 A compilação gera executáveis temporários (build scripts) em target\ e instala
-flowpause.exe em .cargo\bin. O Kaspersky já pôs um desses arquivos em quarentena
+flowpause.exe e flowpause-bg.exe em .cargo\bin. O Kaspersky já pôs um desses arquivos em quarentena
 e a compilação falhou com "Acesso negado" / "arquivo em uso".
 
 Faça uma destas opções:
   1. Adicione exclusões no Kaspersky para:
        $targetDir
        $installedExe
+       $installedLauncher
      (em Configurações > Configurações de segurança > Exclusões; o nome exato
      do menu muda entre versões do Kaspersky)
   2. Ou pause a proteção do Kaspersky até o fim deste script.
@@ -72,8 +74,10 @@ finally {
     Pop-Location
 }
 
-if (-not (Test-Path $installedExe)) {
-    Fail "flowpause.exe não está em $installedExe. O Kaspersky provavelmente o pôs em quarentena."
+foreach ($exe in $installedExe, $installedLauncher) {
+    if (-not (Test-Path $exe)) {
+        Fail "$exe não existe. O Kaspersky provavelmente o pôs em quarentena."
+    }
 }
 & $installedExe --version
 if ($LASTEXITCODE -ne 0) { Fail "flowpause.exe não executou. $avHint" }
@@ -82,5 +86,6 @@ Write-Host @"
 
 Pronto. Abra um terminal novo (para carregar FLOWPAUSE_CLIENT_ID) e rode:
   flowpause login
-Depois siga o roteiro de teste do README.
+Depois siga o roteiro de teste do README. Para iniciar com o Windows:
+  flowpause autostart on
 "@ -ForegroundColor Green

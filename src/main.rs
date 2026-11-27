@@ -1,5 +1,6 @@
 #[macro_use]
 mod logging;
+mod autostart;
 mod controller;
 mod detector;
 mod spotify;
@@ -8,9 +9,12 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use reqwest::StatusCode;
 use tokio::sync::mpsc;
+use windows::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+use windows::Win32::System::Threading::CreateMutexW;
+use windows::core::w;
 
 use controller::{Config, Controller, PauseStrategy, Player};
 use detector::{DictationSource, WasapiDetector};
@@ -66,6 +70,17 @@ enum Command {
         #[arg(long = "match", default_value = "wispr")]
         pattern: String,
     },
+    /// Liga ou desliga o início com o Windows (sem janela, log em %LOCALAPPDATA%\flowpause\logs)
+    Autostart {
+        #[arg(value_enum)]
+        action: Toggle,
+    },
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Toggle {
+    On,
+    Off,
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -97,6 +112,20 @@ async fn run(command: Command) -> Result<ExitCode> {
                 max_pause: Duration::from_secs(max_pause_secs),
             };
             run_controller(spotify_client()?, config, &pattern).await?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        Command::Autostart { action: Toggle::On } => {
+            let launcher = autostart::enable()?;
+            println!("Início com o Windows ligado: {}", launcher.display());
+            println!("Para iniciar agora sem reiniciar, rode: flowpause-bg");
+            return Ok(ExitCode::SUCCESS);
+        }
+        Command::Autostart { action: Toggle::Off } => {
+            if autostart::disable()? {
+                println!("Início com o Windows desligado. Uma cópia já rodando continua até ser encerrada.");
+            } else {
+                println!("O início com o Windows já estava desligado.");
+            }
             return Ok(ExitCode::SUCCESS);
         }
         Command::Login => {
@@ -159,17 +188,18 @@ async fn watch(pattern: &str) -> Result<()> {
 }
 
 async fn run_controller(client: spotify::Client, config: Config, pattern: &str) -> Result<()> {
+    ensure_single_instance()?;
     logln!(
         "flowpause: estratégia {:?}, espera {} ms, pausa máxima {} s",
         config.strategy,
         config.resume_delay.as_millis(),
         config.max_pause.as_secs()
     );
-    // Valida o login e abre a conexão HTTPS antes do primeiro ditado.
-    client
-        .playback()
-        .await
-        .context("falha na consulta inicial ao Spotify")?;
+    // Valida o login e abre a conexão HTTPS antes do primeiro ditado. Sem rede (comum logo
+    // após o login no Windows) segue mesmo assim: a renovação em segundo plano tenta de novo.
+    if let Err(err) = client.playback().await {
+        logln!("aviso: falha na consulta inicial ao Spotify ({err:#}); seguindo");
+    }
     client.spawn_token_refresher();
 
     let (events, receiver) = mpsc::channel(16);
@@ -182,6 +212,20 @@ async fn run_controller(client: spotify::Client, config: Config, pattern: &str) 
         }
     };
     Controller::new(client, config).run(receiver, shutdown).await
+}
+
+/// Impede duas cópias de `run` na mesma sessão do Windows. O mutex fica aberto até o processo sair.
+fn ensure_single_instance() -> Result<()> {
+    // SAFETY: mutex nomeado sem atributos de segurança; o handle não é fechado de propósito.
+    unsafe { CreateMutexW(None, false, w!(r"Local\flowpause")) }
+        .context("falha ao criar o mutex de instância única")?;
+    // SAFETY: lê o erro da chamada imediatamente anterior, nesta thread.
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        bail!(
+            r"o flowpause já está rodando (talvez pelo início automático); log em %LOCALAPPDATA%\flowpause\logs\flowpause.log"
+        );
+    }
+    Ok(())
 }
 
 fn report(response: &ApiResponse) {
