@@ -13,7 +13,7 @@ use reqwest::StatusCode;
 use tokio::sync::mpsc;
 
 use controller::{Config, Controller, PauseStrategy, Player};
-use detector::{DictationSource, RegistryDetector};
+use detector::{DictationSource, WasapiDetector};
 use spotify::{ApiResponse, Device, DeviceList, PlaybackState};
 
 /// `docs/FASE0-RESULTADOS.md` não registra o 403 ao pausar o que já está pausado (H2 não testada),
@@ -50,7 +50,7 @@ enum Command {
     },
     /// Só o detector: imprime cada início e fim de ditado
     Watch {
-        /// Trecho do nome da subchave do registro (sem diferenciar maiúsculas)
+        /// Trecho do caminho do executável que usa o microfone (sem diferenciar maiúsculas)
         #[arg(long = "match", default_value = "wispr")]
         pattern: String,
     },
@@ -62,7 +62,7 @@ enum Command {
         /// Acima disso a retomada automática é cancelada
         #[arg(long, default_value_t = 300)]
         max_pause_secs: u64,
-        /// Trecho do nome da subchave do registro (sem diferenciar maiúsculas)
+        /// Trecho do caminho do executável que usa o microfone (sem diferenciar maiúsculas)
         #[arg(long = "match", default_value = "wispr")]
         pattern: String,
     },
@@ -150,7 +150,7 @@ fn spotify_client() -> Result<spotify::Client> {
 
 async fn watch(pattern: &str) -> Result<()> {
     let (events, mut receiver) = mpsc::channel(16);
-    RegistryDetector::new(pattern).start(events)?;
+    WasapiDetector::new(pattern).start(events)?;
     logln!("observando o microfone. Ctrl+C para sair.");
     while let Some(event) = receiver.recv().await {
         logln!("{event}");
@@ -173,7 +173,7 @@ async fn run_controller(client: spotify::Client, config: Config, pattern: &str) 
     client.spawn_token_refresher();
 
     let (events, receiver) = mpsc::channel(16);
-    RegistryDetector::new(pattern).start(events)?;
+    WasapiDetector::new(pattern).start(events)?;
     logln!("pronto. Ctrl+C para sair.");
 
     let shutdown = async {

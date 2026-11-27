@@ -1,13 +1,13 @@
 //! Detecção de início e fim do ditado (seção 3 da spec).
 
-mod registry;
+mod wasapi;
 
 use std::fmt;
 
 use anyhow::Result;
 use tokio::sync::mpsc;
 
-pub use registry::RegistryDetector;
+pub use wasapi::WasapiDetector;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DictationEvent {

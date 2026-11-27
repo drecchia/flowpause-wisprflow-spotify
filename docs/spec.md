@@ -228,6 +228,8 @@ O único risco que inviabiliza o projeto é o primeiro, e a fase 0 existe para r
 
 Conclusão: neste build do Windows, a fonte de sinal da seção 3 não funciona mais. O risco "Formato da chave de registro mudar em versão futura do Windows" aconteceu. A alternativa já prevista nesta tabela é observar as sessões de captura de áudio via WASAPI.
 
+Decisão (27/11/2026, aprovada pelo autor): o detector passou a usar WASAPI. Ele observa as sessões de captura de todos os microfones ativos (`IAudioSessionManager2`, com notificação de sessão nova e de mudança de estado) e filtra pelo caminho do executável do processo (padrão `wispr`). O ditado está ativo se alguma sessão casada estiver em `AudioSessionStateActive`. Também reage a microfone conectado ou removido. As regras 4 e 6 da seção 3 continuam valendo: evento só na transição, e ditado já em andamento na partida gera início. A seção 3 descreve a fonte antiga e fica como histórico.
+
 ## Referências
 
 - [Spotify Web API: Pause Playback](https://developer.spotify.com/console/put-pause)

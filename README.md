@@ -56,7 +56,7 @@ cargo install --path .
 | `flowpause pause` | `PUT /v1/me/player/pause` |
 | `flowpause play --device <id>` | `PUT /v1/me/player/play?device_id=<id>` |
 | `flowpause transfer --device <id>` | `PUT /v1/me/player` com `{"device_ids":["<id>"],"play":true}` |
-| `flowpause watch [--match wispr]` | Só o detector. Imprime `ditado iniciou` / `ditado terminou` com horário. Não usa o Spotify |
+| `flowpause watch [--match wispr]` | Só o detector. Imprime as sessões de captura encontradas e `ditado iniciou` / `ditado terminou` com horário. Não usa o Spotify |
 | `flowpause run [--resume-delay-ms 2000] [--max-pause-secs 300] [--match wispr]` | Detector + controlador: pausa durante o ditado e retoma no mesmo dispositivo. Ctrl+C para sair |
 
 Cada comando imprime a chamada, o status HTTP, o tempo da chamada em ms e o corpo do erro, se houver. Se o access token precisou ser renovado, a renovação aparece numa linha à parte, com o próprio tempo; o número da chamada não inclui a renovação. O código de saída é 0 para resposta 2xx e 1 para o resto.
@@ -70,7 +70,7 @@ cmdkey /delete:spotify-access-token.flowpause
 
 ### `watch` e `run`
 
-O detector lê `HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\microphone`, onde o Windows registra quando cada app abre e fecha o microfone. `--match` escolhe as subchaves pelo nome (padrão `wispr`, sem diferenciar maiúsculas). Não há polling: o programa espera a notificação de mudança do registro.
+O detector observa as sessões de captura de áudio do Windows (WASAPI) em todos os microfones ativos. O ditado conta como ativo enquanto algum processo cujo caminho contém `--match` (padrão `wispr`, sem diferenciar maiúsculas) tem uma sessão de captura ativa. Não há polling: o programa reage a eventos do Windows. Para ver todas as sessões de captura, de qualquer app, use `flowpause watch --match ""`.
 
 `run` imprime, com horário, cada evento de ditado, cada transição de estado (`Ocioso`, `Pausado`, `SemRetomada`, `Aguardando`) e cada chamada HTTP com status e ms. Regras:
 
